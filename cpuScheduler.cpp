@@ -5,6 +5,7 @@
 #include <iomanip>
 #include <climits>
 #include <string>
+#include <limits>
 
 using namespace std;
 
@@ -190,27 +191,50 @@ public:
         vector<bool> processed(processes.size(), false);
         int currentTime = 0;
         int completed = 0;
+        // Aging parameters: every `agingInterval` time units a waiting process's
+        // numeric priority is reduced by 1 (improves its priority since lower
+        // number means higher priority). This prevents starvation of low-priority
+        // processes.
+        const int agingInterval = 1; // time units per priority improvement
 
         while (completed < processes.size()) {
             int highest = -1;
             int highestPriority = INT_MAX;
 
             for (int i = 0; i < processes.size(); i++) {
-                if (!processed[i] && processes[i].getArrivalTime() <= currentTime &&
-                    processes[i].getPriority() < highestPriority) {
+                if (processed[i]) continue;
+                int at = processes[i].getArrivalTime();
+                if (at > currentTime) continue;
+
+                // Compute effective priority with aging.
+                int waitTime = currentTime - at;
+                int priorityDrop = waitTime / agingInterval; // integer division
+                int effectivePriority = processes[i].getPriority() - priorityDrop;
+                if (effectivePriority < 0) effectivePriority = 0; // clamp
+
+                // Select the process with the lowest effective priority value.
+                if (effectivePriority < highestPriority) {
                     highest = i;
-                    highestPriority = processes[i].getPriority();
+                    highestPriority = effectivePriority;
+                } else if (effectivePriority == highestPriority) {
+                    // Tie-breaker: earlier arrival wins; if equal, smaller burst wins
+                    if (at < processes[highest].getArrivalTime()) {
+                        highest = i;
+                    } else if (at == processes[highest].getArrivalTime() &&
+                               processes[i].getBurstTime() < processes[highest].getBurstTime()) {
+                        highest = i;
+                    }
                 }
             }
 
             if (highest == -1) {
+                // No process has arrived yet; advance time to the next arrival
+                int nextArrival = INT_MAX;
                 for (int i = 0; i < processes.size(); i++) {
-                    if (!processed[i]) {
-                        currentTime = processes[i].getArrivalTime();
-                        highest = i;
-                        break;
-                    }
+                    if (!processed[i]) nextArrival = min(nextArrival, processes[i].getArrivalTime());
                 }
+                currentTime = nextArrival;
+                continue;
             }
 
             processed[highest] = true;
@@ -219,7 +243,7 @@ public:
             processes[highest].setCompletionTime(currentTime);
             processes[highest].calculateTurnaroundTime();
             processes[highest].calculateWaitingTime();
-            
+
             execution.push_back({processes[highest].getPID(), startTime, currentTime});
             completed++;
         }
@@ -386,20 +410,45 @@ void executeScheduler(vector<Process>& processes, int choice) {
 }
 
 int main() {
-    // PID - Arrival Time - Burst Time - Priority
-    // Change these values to test different scenarios
-    vector<Process> processes = {
-        Process(1, 0, 8, 1),
-        Process(2, 1, 4, 2),
-        Process(3, 2, 2, 1),
-        Process(4, 3, 1, 3),
-        Process(5, 4, 3, 2),
-        Process(6, 5, 6, 2),
-        Process(7, 6, 3, 1),
-        Process(8, 7, 5, 3),
-        Process(9, 8, 2, 2),
-        Process(10, 9, 4, 1)
-    };
+    // Processes can be provided interactively or the program can use a
+    // built-in default set. Interactive input expects: PID Arrival Burst Priority
+    vector<Process> processes;
+    cout << "Use default process set? (y/n): ";
+    char useDefault;
+    cin >> useDefault;
+    if (useDefault == 'y' || useDefault == 'Y') {
+        processes = {
+            Process(1, 0, 8, 1),
+            Process(2, 1, 4, 2),
+            Process(3, 2, 2, 1),
+            Process(4, 3, 1, 3),
+            Process(5, 4, 3, 2),
+            Process(6, 5, 6, 2),
+            Process(7, 6, 3, 1),
+            Process(8, 7, 5, 3),
+            Process(9, 8, 2, 2),
+            Process(10, 9, 4, 1)
+        };
+    } else {
+        int n;
+        cout << "Enter number of processes: ";
+        while (!(cin >> n) || n <= 0) {
+            cin.clear();
+            cin.ignore(numeric_limits<streamsize>::max(), '\n');
+            cout << "Please enter a positive integer: ";
+        }
+        cout << "Enter process details (PID Arrival Burst Priority) in the given order:" << endl;
+        for (int i = 0; i < n; ++i) {
+            int pid, at, bt, pr;
+            cout << "Process " << (i + 1) << " - Enter: PID Arrival Burst Priority: ";
+            while (!(cin >> pid >> at >> bt >> pr)) {
+                cin.clear();
+                cin.ignore(numeric_limits<streamsize>::max(), '\n');
+                cout << "Invalid input. Enter: PID Arrival Burst Priority: ";
+            }
+            processes.emplace_back(pid, at, bt, pr);
+        }
+    }
 
     int choice;
     while (true) {
