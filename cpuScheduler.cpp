@@ -195,7 +195,7 @@ public:
         // numeric priority is reduced by 1 (improves its priority since lower
         // number means higher priority). This prevents starvation of low-priority
         // processes.
-        const int agingInterval = 1; // time units per priority improvement
+        const int agingInterval = 5; // time units per priority improvement
 
         while (completed < processes.size()) {
             int highest = -1;
