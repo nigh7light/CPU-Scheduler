@@ -100,16 +100,20 @@ public:
     }
 
     // SJF - Shortest Job First (Non-preemptive)
+    // This algorithm selects the process with the shortest burst time that has arrived by the current time.
+    // It is non-preemptive, meaning once a process starts, it runs to completion.
     static vector<ExecutionSegment> SJF(vector<Process>& processes) {
         vector<ExecutionSegment> execution;
-        vector<bool> processed(processes.size(), false);
-        int currentTime = 0;
-        int completed = 0;
+        vector<bool> processed(processes.size(), false); // Track which processes have been completed
+        int currentTime = 0; // Current simulation time
+        int completed = 0; // Number of processes completed
 
+        // Continue until all processes are completed
         while (completed < processes.size()) {
-            int shortest = -1;
-            int shortestBurst = INT_MAX;
+            int shortest = -1; // Index of the shortest job found
+            int shortestBurst = INT_MAX; // Burst time of the shortest job
 
+            // Find the process with the smallest burst time that has arrived and not yet processed
             for (int i = 0; i < processes.size(); i++) {
                 if (!processed[i] && processes[i].getArrivalTime() <= currentTime &&
                     processes[i].getBurstTime() < shortestBurst) {
@@ -118,6 +122,7 @@ public:
                 }
             }
 
+            // If no process has arrived yet, advance time to the next arrival time
             if (shortest == -1) {
                 for (int i = 0; i < processes.size(); i++) {
                     if (!processed[i]) {
@@ -128,6 +133,7 @@ public:
                 }
             }
 
+            // Execute the selected process
             processed[shortest] = true;
             int startTime = currentTime;
             currentTime += processes[shortest].getBurstTime();
@@ -143,36 +149,45 @@ public:
     }
 
     // Round Robin
+    // This preemptive algorithm uses a time quantum. Each process gets a fixed time slice (quantum).
+    // If a process doesn't finish in its quantum, it's preempted and placed back in the queue.
+    // Processes are enqueued in arrival order initially.
     static vector<ExecutionSegment> RoundRobin(vector<Process>& processes, int timeQuantum) {
         vector<ExecutionSegment> execution;
-        queue<int> q;
-        vector<int> remainingTime(processes.size());
+        queue<int> q; // Queue to hold process indices
+        vector<int> remainingTime(processes.size()); // Remaining burst time for each process
         
+        // Initialize remaining times
         for (int i = 0; i < processes.size(); i++) {
             remainingTime[i] = processes[i].getBurstTime();
         }
 
+        // Sort processes by arrival time to enqueue them in order
         sort(processes.begin(), processes.end(),
              [](const Process& a, const Process& b) {
                  return a.getArrivalTime() < b.getArrivalTime();
              });
 
+        // Enqueue all processes initially (assuming they arrive at time 0 or later, but queue handles order)
         for (int i = 0; i < processes.size(); i++) {
             q.push(i);
         }
 
         int currentTime = 0;
+        // Process the queue until empty
         while (!q.empty()) {
             int idx = q.front();
             q.pop();
 
             int startTime = currentTime;
+            // If remaining time > quantum, execute for quantum and requeue
             if (remainingTime[idx] > timeQuantum) {
                 currentTime += timeQuantum;
                 remainingTime[idx] -= timeQuantum;
                 execution.push_back({processes[idx].getPID(), startTime, currentTime});
-                q.push(idx);
+                q.push(idx); // Requeue the process
             } else {
+                // Execute for remaining time and complete the process
                 currentTime += remainingTime[idx];
                 remainingTime[idx] = 0;
                 processes[idx].setCompletionTime(currentTime);
@@ -186,57 +201,70 @@ public:
     }
 
     // Priority Scheduling (Non-preemptive) - Lower priority number = higher priority
-    static vector<ExecutionSegment> PriorityScheduling(vector<Process>& processes) {
+    // This algorithm selects the process with the highest priority (lowest number) that has arrived.
+    // If withAging is true, priorities improve over time to prevent starvation.
+    // Aging reduces priority by 1 every 'agingInterval' time units waited.
+    // Tie-breaking: earlier arrival time, then smaller burst time.
+    static vector<ExecutionSegment> PriorityScheduling(vector<Process>& processes, bool withAging = true) {
         vector<ExecutionSegment> execution;
-        vector<bool> processed(processes.size(), false);
-        int currentTime = 0;
-        int completed = 0;
+        vector<bool> processed(processes.size(), false); // Track completed processes
+        int currentTime = 0; // Current simulation time
+        int completed = 0; // Number of processes completed
         // Aging parameters: every `agingInterval` time units a waiting process's
         // numeric priority is reduced by 1 (improves its priority since lower
         // number means higher priority). This prevents starvation of low-priority
         // processes.
         const int agingInterval = 5; // time units per priority improvement
 
+        // Continue until all processes are completed
         while (completed < processes.size()) {
-            int highest = -1;
-            int highestPriority = INT_MAX;
+            int highest = -1; // Index of the highest priority process
+            int highestPriority = INT_MAX; // Effective priority of the selected process
 
+            // Find the process with the highest priority (lowest effective priority number)
             for (int i = 0; i < processes.size(); i++) {
-                if (processed[i]) continue;
+                if (processed[i]) continue; // Skip already processed
                 int at = processes[i].getArrivalTime();
-                if (at > currentTime) continue;
+                if (at > currentTime) continue; // Not arrived yet
 
-                // Compute effective priority with aging.
-                int waitTime = currentTime - at;
-                int priorityDrop = waitTime / agingInterval; // integer division
-                int effectivePriority = processes[i].getPriority() - priorityDrop;
-                if (effectivePriority < 0) effectivePriority = 0; // clamp
+                // Compute effective priority with aging if enabled
+                int effectivePriority;
+                if (withAging) {
+                    int waitTime = currentTime - at; // Time spent waiting
+                    int priorityDrop = waitTime / agingInterval; // Integer division for aging steps
+                    effectivePriority = processes[i].getPriority() - priorityDrop;
+                    if (effectivePriority < 0) effectivePriority = 0; // Clamp to prevent negative
+                } else {
+                    effectivePriority = processes[i].getPriority(); // No aging
+                }
 
-                // Select the process with the lowest effective priority value.
+                // Select the process with the lowest effective priority value
                 if (effectivePriority < highestPriority) {
                     highest = i;
                     highestPriority = effectivePriority;
                 } else if (effectivePriority == highestPriority) {
-                    // Tie-breaker: earlier arrival wins; if equal, smaller burst wins
+                    // Tie-breaker: earlier arrival wins
                     if (at < processes[highest].getArrivalTime()) {
                         highest = i;
                     } else if (at == processes[highest].getArrivalTime() &&
                                processes[i].getBurstTime() < processes[highest].getBurstTime()) {
+                        // If same arrival, smaller burst wins
                         highest = i;
                     }
                 }
             }
 
+            // If no process is ready, advance time to the next arrival
             if (highest == -1) {
-                // No process has arrived yet; advance time to the next arrival
                 int nextArrival = INT_MAX;
                 for (int i = 0; i < processes.size(); i++) {
                     if (!processed[i]) nextArrival = min(nextArrival, processes[i].getArrivalTime());
                 }
                 currentTime = nextArrival;
-                continue;
+                continue; // Restart the loop with new time
             }
 
+            // Execute the selected process to completion
             processed[highest] = true;
             int startTime = currentTime;
             currentTime += processes[highest].getBurstTime();
@@ -261,7 +289,8 @@ void displayResults(const vector<Process>& processes, const string& algorithmNam
          << setw(15) << "Turnaround" << setw(12) << "Waiting" << endl;
     cout << string(80, '-') << endl;
 
-    double avgTurnaround = 0, avgWaiting = 0, totalTime;
+    double avgTurnaround = 0, avgWaiting = 0, totalTime = 0;
+    // Calculate averages and find the total time (maximum completion time)
     for (const auto& p : processes) {
         cout << left << setw(8) << p.getPID()
              << setw(15) << p.getArrivalTime()
@@ -272,17 +301,16 @@ void displayResults(const vector<Process>& processes, const string& algorithmNam
         avgTurnaround += p.turnaroundTime;
         avgWaiting += p.waitingTime;
         
-            // Track the maximum completion time
+        // Track the maximum completion time to calculate total execution time
         if (p.completionTime > totalTime) {
-        totalTime = p.completionTime;
-    }
-
+            totalTime = p.completionTime;
+        }
     }
 
     avgTurnaround /= processes.size();
     avgWaiting /= processes.size();
     
-    // Throughput = number of processes / total time
+    // Throughput: number of processes completed per unit time (processes / total time)
     double throughput = processes.size() / totalTime;
 
     cout << string(80, '-') << endl;
@@ -398,9 +426,16 @@ void executeScheduler(vector<Process>& processes, int choice) {
             break;
         }
         case 4: {
-            // Execute Priority Scheduling algorithm
-            execution = Scheduler::PriorityScheduling(tempProcesses);
-            displayResults(tempProcesses, "Priority Scheduling");
+            // Execute Priority Scheduling algorithm without aging
+            execution = Scheduler::PriorityScheduling(tempProcesses, false);
+            displayResults(tempProcesses, "Priority Scheduling (without aging)");
+            displayGanttChart(execution);
+            break;
+        }
+        case 5: {
+            // Execute Priority Scheduling algorithm with aging
+            execution = Scheduler::PriorityScheduling(tempProcesses, true);
+            displayResults(tempProcesses, "Priority Scheduling (with aging)");
             displayGanttChart(execution);
             break;
         }
@@ -418,16 +453,16 @@ int main() {
     cin >> useDefault;
     if (useDefault == 'y' || useDefault == 'Y') {
         processes = {
-            Process(1, 0, 8, 1),
-            Process(2, 1, 4, 2),
-            Process(3, 2, 2, 1),
-            Process(4, 3, 1, 3),
-            Process(5, 4, 3, 2),
-            Process(6, 5, 6, 2),
-            Process(7, 6, 3, 1),
-            Process(8, 7, 5, 3),
-            Process(9, 8, 2, 2),
-            Process(10, 9, 4, 1)
+            Process(1, 3, 5, 8),
+            Process(3, 7, 5, 2),
+            Process(2, 9, 7, 1),
+            Process(4, 8, 2, 9),
+            Process(7, 4, 1, 3),
+            Process(6, 3, 1, 1),
+            Process(5, 1, 9, 6),
+            Process(8, 7, 3, 5),
+            Process(9, 1, 4, 2),
+            Process(10, 9, 3, 5)
         };
     } else {
         int n;
@@ -459,12 +494,13 @@ int main() {
         cout << "2. SJF (Shortest Job First)" << endl;
         cout << "3. Round Robin" << endl;
         cout << "4. Priority Scheduling" << endl;
-        cout << "5. Exit" << endl;
+        cout << "5. Priority Scheduling(with aging)" << endl;
+        cout << "6. Exit" << endl;
         cout << string(80, '-') << endl;
-        cout << "Enter your choice (1-5): ";
+        cout << "Enter your choice (1-6): ";
         cin >> choice;
 
-        if (choice == 5) break;
+        if (choice == 6) break;
 
         // Call the executeScheduler function with user choice
         executeScheduler(processes, choice);
